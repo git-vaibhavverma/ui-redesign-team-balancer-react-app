@@ -1,3 +1,0 @@
-streamlit
-pandas
-streamlit-keyup>=0.3.0
