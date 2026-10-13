@@ -18,6 +18,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,9 +108,13 @@ export default function App() {
     setScreen('select');
   }
 
-  async function clearOrReset() {
+  function clearOrReset() {
     if (!session) return;
-    if (session.match_number > 0 && !window.confirm('Reset this cricket session and start again?')) return;
+    setShowResetConfirm(true);
+  }
+
+  async function confirmReset() {
+    if (!session) return;
     setBusy(true);
     setError('');
     try {
@@ -119,8 +124,10 @@ export default function App() {
       setSearch('');
       setScreen('select');
       setActiveTeam('A');
+      setShowResetConfirm(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not reset the session.');
+      setShowResetConfirm(false);
     } finally {
       setBusy(false);
     }
@@ -156,7 +163,7 @@ export default function App() {
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search player name…" aria-label="Search players by name" />
               {search && <button type="button" className="clear-search" onClick={() => setSearch('')} aria-label="Clear search">×</button>}
             </label>
-            <div className="toolbar-actions">
+            <div className={`toolbar-actions ${session?.match_number ? 'is-editing' : 'is-initial'}`}>
               <button type="button" className="button button-secondary" onClick={() => setSelectedNames(new Set())} disabled={selectedNames.size === 0}>Clear selection</button>
               {session?.match_number ? <button type="button" className="button button-secondary" onClick={() => setScreen('teams')}>Cancel</button> : null}
               <button type="button" className="button button-primary" onClick={() => void generate()} disabled={selectedNames.size < 2 || busy}>
@@ -200,14 +207,35 @@ export default function App() {
           </div>
           <div className="team-actions">
             <button type="button" className="button button-secondary" onClick={editPlayers}>Edit Players</button>
-            <button type="button" className="button button-primary" onClick={() => void generate()} disabled={busy || selectedNames.size < 2}>
-              {busy ? 'Generating…' : 'Generate Next Match'}
-            </button>
-            <button type="button" className="button button-quiet" onClick={() => void clearOrReset()} disabled={busy}>Reset Session</button>
+            <button type="button" className="button button-quiet" onClick={clearOrReset} disabled={busy}>Reset Session</button>
           </div>
         </section>
       )}
       <footer className="app-footer"><span>PRISM · BUILT FOR SUNDAY CRICKET</span><span>Responsive by design</span></footer>
+
+      {showResetConfirm && (
+        <div
+          className="dialog-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busy) setShowResetConfirm(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !busy) setShowResetConfirm(false);
+          }}
+        >
+          <section className="reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-dialog-title">
+            <div className="dialog-accent" aria-hidden="true"><span>↺</span></div>
+            <h2 id="reset-dialog-title">Reset Session?</h2>
+            <div className="dialog-actions">
+              <button type="button" className="button button-secondary" onClick={() => setShowResetConfirm(false)} disabled={busy} autoFocus>Cancel</button>
+              <button type="button" className="button button-primary" onClick={() => void confirmReset()} disabled={busy}>
+                {busy ? 'Resetting…' : 'Reset'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
