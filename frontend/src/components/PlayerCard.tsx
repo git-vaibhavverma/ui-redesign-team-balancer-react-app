@@ -17,7 +17,12 @@ function roleLabel(player: Player): string {
 }
 
 export default function PlayerCard({
-  player, checked = false, selectable = false, disabled = false, shared = false, onCheckedChange,
+  player,
+  checked = false,
+  selectable = false,
+  disabled = false,
+  shared = false,
+  onCheckedChange,
 }: Props) {
   const cardClass = [
     'player-card',
@@ -43,27 +48,24 @@ export default function PlayerCard({
           <span>BOWL <b>{player.bowling.toFixed(2)}</b></span>
           <span>FIELD <b>{player.fielding.toFixed(2)}</b></span>
         </div>
-        {selectable && (
-          <input
-            aria-label={`Select ${player.name}`}
-            className="player-checkbox"
-            type="checkbox"
-            checked={checked}
-            disabled={disabled}
-            onChange={(event) => onCheckedChange?.(player.name, event.currentTarget.checked)}
-            onClick={(event) => event.stopPropagation()}
-          />
-        )}
       </div>
     </>
   );
 
   if (selectable) {
     return (
-      <label className={`${cardClass} player-card-label`}>
+      <button
+        type="button"
+        className={`${cardClass} player-card-button`}
+        aria-pressed={checked}
+        aria-label={`${player.name}${checked ? ', selected' : ', not selected'}`}
+        disabled={disabled}
+        onClick={() => onCheckedChange?.(player.name, !checked)}
+      >
         {content}
-      </label>
+      </button>
     );
   }
+
   return <article className={cardClass}>{content}</article>;
 }
