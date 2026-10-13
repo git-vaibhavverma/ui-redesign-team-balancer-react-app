@@ -134,11 +134,11 @@ export default function App() {
   }
 
   if (loading) {
-    return <main className="page-shell"><div className="loading-panel">Loading Prism…</div></main>;
+    return <main className="page-shell"><div className="loading-panel">Loading Prism Team Balancer…</div></main>;
   }
 
   if (error && !session) {
-    return <main className="page-shell"><div className="error-panel"><h1>Prism could not connect</h1><p>{error}</p><p>Check that the FastAPI server is running and the API URL is configured.</p></div></main>;
+    return <main className="page-shell"><div className="error-panel"><h1>Prism Team Balancer could not connect</h1><p>{error}</p><p>Check that the FastAPI server is running and the API URL is configured.</p></div></main>;
   }
 
   return (

@@ -129,7 +129,11 @@ h2 { margin: 0; font-size: clamp(1.45rem, 3vw, 2rem); letter-spacing: -.035em; }
   .selection-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
   .search-box { order: 2; align-self: stretch; flex: 0 0 auto; width: 100%; min-height: 44px; padding: 0 10px; gap: 8px; }
   .search-box > span { font-size: 1.25rem; }
+  /* Keep search input at 16px to prevent iOS Safari focus zoom. */
+  .search-box input { font-size: 16px; line-height: 1.2; }
+  /*
   .search-box input { font-size: .82rem; }
+  */
   .toolbar-actions { order: 1; align-self: stretch; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
   .toolbar-actions .button { min-width: 0; padding: 9px 10px; }
   .toolbar-actions .button-primary { grid-column: 1 / -1; grid-row: 1; }
