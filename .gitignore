@@ -19,3 +19,6 @@ env/
 
 # Local files
 *.log
+
+# local test env
+frontend/.env.local
