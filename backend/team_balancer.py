@@ -21,10 +21,11 @@
 #
 # The algorithm deliberately evaluates all possible meaningful
 # combinations because the Sunday group is relatively small
-# (typically around 10-20 players).
+# (typically around 10-25 players).
 # ============================================================
 
-from itertools import combinations
+import numpy as np
+from numba import njit
 
 from config import (
     SKILL_WEIGHTS,
@@ -670,260 +671,434 @@ def total_score(
 # FIND BEST TEAMS
 # ============================================================
 
+# ============================================================
+# COMPILED EXHAUSTIVE SEARCH HELPERS
+# ============================================================
+
+# The optimizer still evaluates every unique valid arrangement.
+# Numba compiles the exhaustive-combination loops, and selected-team
+# statistics are updated incrementally instead of rebuilding team lists
+# and recalculating team_stats() for every candidate.
+#
+# Metric columns mirror the fields used by base_balance_score().
+@njit(cache=False)
+def _candidate_score_numba(
+    selected_unique_stats,
+    total_stats,
+    remaining_unique_totals,
+    metrics,
+    shared_index,
+    score_weights,
+    movement_count,
+    reshuffle_penalty,
+):
+    """Calculate the same weighted score for one candidate arrangement."""
+    balance_score = 0.0
+    for metric_index in range(metrics.shape[1]):
+        if shared_index >= 0:
+            shared_value = metrics[shared_index, metric_index]
+            value_a = selected_unique_stats[metric_index] + shared_value
+            value_b = (
+                remaining_unique_totals[metric_index]
+                - selected_unique_stats[metric_index]
+                + shared_value
+            )
+        else:
+            value_a = selected_unique_stats[metric_index]
+            value_b = total_stats[metric_index] - value_a
+
+        denominator = value_a + value_b
+        if denominator != 0.0:
+            balance_score += (
+                abs(value_a - value_b)
+                / denominator
+                * score_weights[metric_index]
+            )
+
+    return balance_score + movement_count * reshuffle_penalty
+
+
+@njit(cache=False)
+def _next_combination_position(combo, pool_size):
+    """Return the rightmost combination position that can be advanced."""
+    position = len(combo) - 1
+    while position >= 0:
+        if combo[position] < pool_size - len(combo) + position:
+            return position
+        position -= 1
+    return -1
+
+
+@njit(cache=False)
+def _recalculate_selected_stats(metrics, fixed_index, pool, combo):
+    """Rebase the incremental subset sum periodically to limit float drift."""
+    selected = metrics[fixed_index].copy()
+    for position in range(len(combo)):
+        selected += metrics[pool[combo[position]]]
+    return selected
+
+
+@njit(cache=False)
+def _search_even_numba(
+    metrics,
+    total_stats,
+    pool,
+    fixed_index,
+    choose_count,
+    score_weights,
+    movement_delta,
+    baseline_movement,
+    has_previous_assignment,
+    reshuffle_penalty,
+):
+    """Exhaustively search even-player splits with incremental subset sums."""
+    pool_size = len(pool)
+    combo = np.arange(choose_count, dtype=np.int64)
+    selected_stats = metrics[fixed_index].copy()
+    selected_movement_delta = 0
+
+    for position in range(choose_count):
+        player_index = pool[combo[position]]
+        selected_stats += metrics[player_index]
+        if has_previous_assignment:
+            selected_movement_delta += movement_delta[player_index]
+
+    best_score = float("inf")
+    best_choices = np.empty(choose_count, dtype=np.int64)
+    candidate_number = 0
+
+    while True:
+        movement_count = 0
+        if has_previous_assignment:
+            movement_count = baseline_movement + selected_movement_delta
+
+        score = _candidate_score_numba(
+            selected_stats,
+            total_stats,
+            total_stats,
+            metrics,
+            -1,
+            score_weights,
+            movement_count,
+            reshuffle_penalty,
+        )
+
+        if score < best_score:
+            best_score = score
+            for position in range(choose_count):
+                best_choices[position] = pool[combo[position]]
+
+        candidate_number += 1
+        next_position = _next_combination_position(combo, pool_size)
+        if next_position < 0:
+            break
+
+        # Remove the old suffix from the running sum/cost.
+        for position in range(next_position, choose_count):
+            player_index = pool[combo[position]]
+            selected_stats -= metrics[player_index]
+            if has_previous_assignment:
+                selected_movement_delta -= movement_delta[player_index]
+
+        # Advance this combination to the next lexicographic combination.
+        combo[next_position] += 1
+        for position in range(next_position + 1, choose_count):
+            combo[position] = combo[position - 1] + 1
+
+        # Add the new suffix.
+        for position in range(next_position, choose_count):
+            player_index = pool[combo[position]]
+            selected_stats += metrics[player_index]
+            if has_previous_assignment:
+                selected_movement_delta += movement_delta[player_index]
+
+        # Rebase regularly. This keeps floating-point drift from accumulating
+        # while retaining the speed benefit of incremental updates.
+        if candidate_number % 64 == 0:
+            selected_stats = _recalculate_selected_stats(
+                metrics, fixed_index, pool, combo
+            )
+            selected_movement_delta = 0
+            if has_previous_assignment:
+                for position in range(choose_count):
+                    selected_movement_delta += movement_delta[pool[combo[position]]]
+
+    return best_score, best_choices
+
+
+@njit(cache=False)
+def _search_odd_numba(
+    metrics,
+    total_stats,
+    score_weights,
+    movement_delta,
+    cost_if_b,
+    has_previous_assignment,
+    reshuffle_penalty,
+):
+    """Exhaustively search every possible shared player using incremental sums."""
+    player_count = metrics.shape[0]
+    unique_team_size = (player_count - 1) // 2
+    choose_count = unique_team_size - 1
+    metric_count = metrics.shape[1]
+
+    best_score = float("inf")
+    best_shared_index = -1
+    best_fixed_index = -1
+    best_choices = np.empty(choose_count, dtype=np.int64)
+
+    for shared_index in range(player_count):
+        remaining = np.empty(player_count - 1, dtype=np.int64)
+        cursor = 0
+        for player_index in range(player_count):
+            if player_index != shared_index:
+                remaining[cursor] = player_index
+                cursor += 1
+
+        fixed_index = remaining[0]
+        pool = remaining[1:]
+        pool_size = len(pool)
+
+        # Keep the unique-player totals separate: the shared player is added
+        # to both teams and therefore cancels from the skill-difference numerator.
+        unique_totals = np.zeros(metric_count, dtype=np.float64)
+        remaining_baseline_movement = 0
+        for idx in range(len(remaining)):
+            player_index = remaining[idx]
+            unique_totals += metrics[player_index]
+            if has_previous_assignment:
+                remaining_baseline_movement += cost_if_b[player_index]
+
+        baseline_movement = remaining_baseline_movement
+        if has_previous_assignment:
+            baseline_movement += movement_delta[fixed_index]
+
+        combo = np.arange(choose_count, dtype=np.int64)
+        selected_stats = metrics[fixed_index].copy()
+        selected_movement_delta = 0
+        for position in range(choose_count):
+            player_index = pool[combo[position]]
+            selected_stats += metrics[player_index]
+            if has_previous_assignment:
+                selected_movement_delta += movement_delta[player_index]
+
+        candidate_number = 0
+        while True:
+            movement_count = 0
+            if has_previous_assignment:
+                movement_count = baseline_movement + selected_movement_delta
+
+            score = _candidate_score_numba(
+                selected_stats,
+                total_stats,
+                unique_totals,
+                metrics,
+                shared_index,
+                score_weights,
+                movement_count,
+                reshuffle_penalty,
+            )
+
+            if score < best_score:
+                best_score = score
+                best_shared_index = shared_index
+                best_fixed_index = fixed_index
+                for position in range(choose_count):
+                    best_choices[position] = pool[combo[position]]
+
+            candidate_number += 1
+            next_position = _next_combination_position(combo, pool_size)
+            if next_position < 0:
+                break
+
+            for position in range(next_position, choose_count):
+                player_index = pool[combo[position]]
+                selected_stats -= metrics[player_index]
+                if has_previous_assignment:
+                    selected_movement_delta -= movement_delta[player_index]
+
+            combo[next_position] += 1
+            for position in range(next_position + 1, choose_count):
+                combo[position] = combo[position - 1] + 1
+
+            for position in range(next_position, choose_count):
+                player_index = pool[combo[position]]
+                selected_stats += metrics[player_index]
+                if has_previous_assignment:
+                    selected_movement_delta += movement_delta[player_index]
+
+            if candidate_number % 64 == 0:
+                selected_stats = _recalculate_selected_stats(
+                    metrics, fixed_index, pool, combo
+                )
+                selected_movement_delta = 0
+                if has_previous_assignment:
+                    for position in range(choose_count):
+                        selected_movement_delta += movement_delta[pool[combo[position]]]
+
+    return best_score, best_shared_index, best_fixed_index, best_choices
+
+
+def _player_metric_matrix(players):
+    """Precompute the per-player values used by team_stats()."""
+    rows = []
+    for player in players:
+        rows.append([
+            player["batting"],
+            player["bowling"],
+            player["fielding"],
+            player_strength(player),
+            int(bool(player["is_batsman"])),
+            int(bool(player["is_bowler"])),
+            int(not player["is_batsman"] and not player["is_bowler"]),
+            int(is_elite_batter(player)),
+            int(is_elite_bowler(player)),
+            int(is_strong_batter(player)),
+            int(is_strong_bowler(player)),
+            int(is_weak_batter(player)),
+            int(is_weak_bowler(player)),
+        ])
+    return np.asarray(rows, dtype=np.float64)
+
+
+def _sum_metric_rows(metrics, indices):
+    """Sum metric rows in stable player order (matching Python team totals)."""
+    result = np.zeros(metrics.shape[1], dtype=np.float64)
+    for index in indices:
+        result += metrics[index]
+    return result
+
+
+def _score_weight_vector():
+    """Weights aligned with metric columns, in the same order as base_balance_score()."""
+    return np.asarray([
+        SKILL_WEIGHTS["batting"],
+        SKILL_WEIGHTS["bowling"],
+        SKILL_WEIGHTS["fielding"],
+        OVERALL_STRENGTH_PENALTY,
+        ROLE_PENALTIES["batsmen"],
+        ROLE_PENALTIES["bowlers"],
+        ROLE_PENALTIES["fielders"],
+        ELITE_PLAYER_PENALTY,
+        ELITE_PLAYER_PENALTY,
+        STRONG_PLAYER_PENALTY,
+        STRONG_PLAYER_PENALTY,
+        WEAK_PLAYER_PENALTY,
+        WEAK_PLAYER_PENALTY,
+    ], dtype=np.float64)
+
+
+def _reshuffle_cost_arrays(players, previous_assignment):
+    """Return per-player movement costs for assignment to Team A and Team B."""
+    if not previous_assignment:
+        zeros = np.zeros(len(players), dtype=np.int64)
+        return zeros, zeros.copy()
+
+    cost_if_a = np.asarray([
+        int(previous_assignment.get(player["name"]) == "B")
+        for player in players
+    ], dtype=np.int64)
+    cost_if_b = np.asarray([
+        int(previous_assignment.get(player["name"]) == "A")
+        for player in players
+    ], dtype=np.int64)
+    return cost_if_a, cost_if_b
+
+
 def find_best_teams(
     players,
     previous_assignment=None,
 ):
+    """Find the global best split using compiled exhaustive search.
+
+    The scoring formula and candidate search space are unchanged. This
+    implementation precomputes per-player metrics and updates selected-team
+    sums incrementally as combinations advance, avoiding repeated Python
+    list construction and repeated calls to team_stats() for every candidate.
     """
-    Find the best possible team arrangement.
-
-    EVEN number of players:
-        Players are split equally.
-
-    ODD number of players:
-        Exactly one player is shared between the two teams.
-
-    The algorithm evaluates every possible valid arrangement.
-
-    Because our Sunday group is relatively small, exhaustive
-    search is practical and gives us confidence that we're not
-    relying on a heuristic that might miss a better combination.
-    """
-
     if len(players) < 2:
+        raise ValueError("At least 2 players are required.")
 
-        raise ValueError(
-            "At least 2 players are required."
-        )
-
-    # Make a copy so we don't accidentally modify the caller's
-    # player list.
     players = list(players)
+    metrics = _player_metric_matrix(players)
+    total_stats = _sum_metric_rows(metrics, range(len(players)))
+    score_weights = _score_weight_vector()
+    cost_if_a, cost_if_b = _reshuffle_cost_arrays(players, previous_assignment)
+    movement_delta = cost_if_a - cost_if_b
+    has_previous_assignment = bool(previous_assignment)
 
-    best_result = None
-
-    # We are minimizing the score, so start with infinity.
-    best_score = float("inf")
-
-    player_count = len(players)
-
-    # ========================================================
-    # EVEN NUMBER OF PLAYERS
-    # ========================================================
-
-    if player_count % 2 == 0:
-
-        team_size = (
-            player_count // 2
-        )
-
-        # ----------------------------------------------------
-        # Symmetry optimization
-        #
-        # Team A / Team B and Team B / Team A represent the
-        # same split.
-        #
-        # We therefore force the first player into Team A.
-        # This roughly halves the number of combinations we
-        # need to evaluate.
-        # ----------------------------------------------------
-
-        first_player = players[0]
-
-        remaining_players = players[1:]
-
-        # Choose the remaining players needed to complete
-        # Team A.
-        for team_a_rest in combinations(
-            remaining_players,
-            team_size - 1,
-        ):
-
-            team_a = [
-                first_player,
-                *team_a_rest,
-            ]
-
-            team_a_names = {
-                p["name"]
-                for p in team_a
-            }
-
-            # Everyone not in Team A becomes Team B.
-            team_b = [
-                p
-                for p in players
-                if p["name"]
-                not in team_a_names
-            ]
-
-            score = total_score(
-                team_a,
-                team_b,
-                previous_assignment,
+    if len(players) % 2 == 0:
+        fixed_index = 0
+        pool = np.arange(1, len(players), dtype=np.int64)
+        baseline_movement = 0
+        if has_previous_assignment:
+            baseline_movement = int(
+                cost_if_b.sum() + movement_delta[fixed_index]
             )
 
-            # Keep the best arrangement found so far.
-            if score < best_score:
-
-                best_score = score
-
-                best_result = {
-                    "team_a": team_a,
-                    "team_b": team_b,
-
-                    # Even player count means nobody is shared.
-                    "shared_player": None,
-
-                    "score": score,
-
-                    "balance_score":
-                        base_balance_score(
-                            team_a,
-                            team_b,
-                        ),
-
-                    "reshuffle_score":
-                        reshuffle_score(
-                            team_a,
-                            team_b,
-                            previous_assignment,
-                        ),
-                }
-
-    # ========================================================
-    # ODD NUMBER OF PLAYERS
-    # ========================================================
-
+        best_score, best_choices = _search_even_numba(
+            metrics,
+            total_stats,
+            pool,
+            fixed_index,
+            len(players) // 2 - 1,
+            score_weights,
+            movement_delta,
+            baseline_movement,
+            has_previous_assignment,
+            RESHUFFLE_PENALTY,
+        )
+        best_shared_index = -1
+        best_fixed_index = fixed_index
+        best_choice_indices = best_choices.tolist()
     else:
-
-        # ----------------------------------------------------
-        # With an odd number of players, exactly one player is
-        # shared between both teams.
-        #
-        # Example:
-        #
-        # 13 players
-        #
-        # One shared player
-        # 12 unique player slots
-        #
-        # 6 unique players + shared
-        #        VS
-        # 6 unique players + shared
-        # ----------------------------------------------------
-
-        unique_count = (
-            player_count - 1
+        best_score, best_shared_index, best_fixed_index, best_choices = _search_odd_numba(
+            metrics,
+            total_stats,
+            score_weights,
+            movement_delta,
+            cost_if_b,
+            has_previous_assignment,
+            RESHUFFLE_PENALTY,
         )
+        best_choice_indices = best_choices.tolist()
 
-        unique_team_size = (
-            unique_count // 2
-        )
+    if best_fixed_index < 0:
+        raise RuntimeError("Unable to generate teams.")
 
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
-        # We try EVERY player as the shared player.
-        #
-        # This allows the algorithm to decide which player
-        # produces the best overall balance.
-        # ----------------------------------------------------
+    # Rebuild teams in the same order as the prior implementation.
+    team_a_unique_indices = [best_fixed_index] + best_choice_indices
+    team_a_unique_set = set(team_a_unique_indices)
 
-        for shared_player in players:
+    if best_shared_index < 0:
+        team_a = [players[i] for i in team_a_unique_indices]
+        team_b = [
+            player for i, player in enumerate(players)
+            if i not in team_a_unique_set
+        ]
+        shared_player = None
+    else:
+        remaining_indices = [
+            i for i in range(len(players))
+            if i != best_shared_index
+        ]
+        team_b_unique = [
+            players[i] for i in remaining_indices
+            if i not in team_a_unique_set
+        ]
+        shared_player = players[best_shared_index]
+        team_a = [players[i] for i in team_a_unique_indices] + [shared_player]
+        team_b = team_b_unique + [shared_player]
 
-            remaining_players = [
-                p
-                for p in players
-                if p["name"]
-                != shared_player["name"]
-            ]
-
-            # Again use the first remaining player to eliminate
-            # mirror-image Team A / Team B combinations.
-            first_player = (
-                remaining_players[0]
-            )
-
-            remaining_after_first = (
-                remaining_players[1:]
-            )
-
-            # Select the remaining players required for
-            # Team A's unique portion.
-            for team_a_rest in combinations(
-                remaining_after_first,
-                unique_team_size - 1,
-            ):
-
-                team_a_unique = [
-                    first_player,
-                    *team_a_rest,
-                ]
-
-                team_a_names = {
-                    p["name"]
-                    for p in team_a_unique
-                }
-
-                # Everyone else becomes Team B's unique players.
-                team_b_unique = [
-                    p
-                    for p in remaining_players
-                    if p["name"]
-                    not in team_a_names
-                ]
-
-                # Add the same shared player to both teams.
-                team_a = [
-                    *team_a_unique,
-                    shared_player,
-                ]
-
-                team_b = [
-                    *team_b_unique,
-                    shared_player,
-                ]
-
-                score = total_score(
-                    team_a,
-                    team_b,
-                    previous_assignment,
-                )
-
-                if score < best_score:
-
-                    best_score = score
-
-                    best_result = {
-                        "team_a": team_a,
-                        "team_b": team_b,
-
-                        "shared_player":
-                            shared_player,
-
-                        "score": score,
-
-                        "balance_score":
-                            base_balance_score(
-                                team_a,
-                                team_b,
-                            ),
-
-                        "reshuffle_score":
-                            reshuffle_score(
-                                team_a,
-                                team_b,
-                                previous_assignment,
-                            ),
-                    }
-
-    # This should never happen if the input is valid, but it's
-    # safer to fail explicitly than return None.
-    if best_result is None:
-
-        raise RuntimeError(
-            "Unable to generate teams."
-        )
-
-    return best_result
+    # Use the original scalar helpers to report the scores. This keeps the
+    # returned score fields consistent with the rest of the application.
+    balance_score = base_balance_score(team_a, team_b)
+    reshuffle = reshuffle_score(team_a, team_b, previous_assignment)
+    return {
+        "team_a": team_a,
+        "team_b": team_b,
+        "shared_player": shared_player,
+        "score": balance_score + reshuffle,
+        "balance_score": balance_score,
+        "reshuffle_score": reshuffle,
+    }

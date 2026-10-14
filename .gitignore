@@ -24,5 +24,11 @@ env/
 frontend/.env.local
 
 #ignore test files
-backend/team_balancer_Test.py
-testing.py
+backend/team_balancer_check_each_combo.py
+testing_check_each_combo.py
+
+#ignore benchmark test file
+benchmark_team_balancer.py
+
+#ignore v1 of team balancer
+backend/team_balancer_v1_unoptimized.py
