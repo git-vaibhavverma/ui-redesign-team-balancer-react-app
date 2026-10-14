@@ -24,6 +24,23 @@ export interface TeamStats {
   [key: string]: number;
 }
 
+export interface SerializedMatchState {
+  team_a: string[];
+  team_b: string[];
+  shared_player: string | null;
+  score: number;
+  balance_score: number;
+  reshuffle_score: number;
+}
+
+export interface SessionRestoreState {
+  version: 1;
+  match_number: number;
+  player_names: string[];
+  current_match: SerializedMatchState | null;
+  history: SerializedMatchState[];
+}
+
 export interface SessionState {
   session_id: string;
   match_number: number;
@@ -32,4 +49,5 @@ export interface SessionState {
   team_b: Player[];
   team_a_stats: TeamStats;
   team_b_stats: TeamStats;
+  restore_state?: SessionRestoreState;
 }

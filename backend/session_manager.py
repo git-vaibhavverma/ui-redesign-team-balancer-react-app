@@ -25,6 +25,7 @@
 # ============================================================
 
 from copy import deepcopy
+import math
 
 from backend.player_service import PlayerService
 from backend.team_balancer import find_best_teams
@@ -241,6 +242,157 @@ class CricketSession:
             assignment[name] = "B"
 
         return assignment
+
+    # ========================================================
+    # SESSION SNAPSHOT / RESTORE
+    # ========================================================
+
+    @staticmethod
+    def _match_to_snapshot(result):
+        """Serialize a generated match using player names and score metrics only."""
+        if result is None:
+            return None
+
+        shared_player = result.get("shared_player")
+        if isinstance(shared_player, dict):
+            shared_player = shared_player.get("name")
+
+        return {
+            "team_a": [str(player["name"]) for player in result.get("team_a", [])],
+            "team_b": [str(player["name"]) for player in result.get("team_b", [])],
+            "shared_player": shared_player,
+            "score": float(result.get("score", 0.0)),
+            "balance_score": float(result.get("balance_score", 0.0)),
+            "reshuffle_score": float(result.get("reshuffle_score", 0.0)),
+        }
+
+    def to_snapshot(self):
+        """Return JSON-friendly session state that can survive an API restart.
+
+        Player records are represented by names because the trusted master roster
+        remains on the server. Restore rebuilds player dictionaries from that roster.
+        """
+        return {
+            "version": 1,
+            "match_number": int(self.match_number),
+            "player_names": [str(player["name"]) for player in self.players],
+            "current_match": self._match_to_snapshot(self.current_teams),
+            "history": [self._match_to_snapshot(match) for match in self.history],
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot, master_players):
+        """Rebuild a CricketSession from a validated, JSON-friendly snapshot.
+
+        The master roster is authoritative: browser-supplied ratings/roles are never
+        trusted, and all restored players are reconstructed from master player data.
+        """
+        if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
+            raise ValueError("Unsupported or invalid session snapshot.")
+
+        master_by_name = {
+            str(player.get("name", "")): player
+            for player in master_players
+            if isinstance(player, dict) and player.get("name")
+        }
+
+        def validate_names(raw_names, field_name):
+            if not isinstance(raw_names, list) or len(raw_names) > 200:
+                raise ValueError("Invalid player list in session snapshot: " + field_name)
+            names = []
+            for raw_name in raw_names:
+                if not isinstance(raw_name, str) or not raw_name.strip():
+                    raise ValueError("Invalid player name in session snapshot: " + field_name)
+                name = raw_name.strip()
+                if name not in master_by_name:
+                    raise ValueError("Unknown player in session snapshot: " + name)
+                names.append(name)
+            if len(set(names)) != len(names):
+                raise ValueError("Duplicate player names in session snapshot: " + field_name)
+            return names
+
+        def canonical_player(name):
+            return deepcopy(master_by_name[name])
+
+        def finite_score(match, key):
+            value = match.get(key, 0.0)
+            if isinstance(value, bool):
+                raise ValueError("Invalid match score in session snapshot.")
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise ValueError("Invalid match score in session snapshot.")
+            if not math.isfinite(number):
+                raise ValueError("Invalid match score in session snapshot.")
+            return number
+
+        def restore_match(raw_match, field_name):
+            if raw_match is None:
+                return None
+            if not isinstance(raw_match, dict):
+                raise ValueError("Invalid match entry in session snapshot: " + field_name)
+
+            team_a_names = validate_names(raw_match.get("team_a"), field_name + ".team_a")
+            team_b_names = validate_names(raw_match.get("team_b"), field_name + ".team_b")
+            shared_name = raw_match.get("shared_player")
+            if shared_name is not None:
+                if not isinstance(shared_name, str) or shared_name not in master_by_name:
+                    raise ValueError("Invalid shared player in session snapshot.")
+
+            overlap = set(team_a_names) & set(team_b_names)
+            expected_overlap = {shared_name} if shared_name is not None else set()
+            if overlap != expected_overlap:
+                raise ValueError("Team membership is inconsistent in session snapshot.")
+
+            return {
+                "team_a": [canonical_player(name) for name in team_a_names],
+                "team_b": [canonical_player(name) for name in team_b_names],
+                "shared_player": canonical_player(shared_name) if shared_name else None,
+                "score": finite_score(raw_match, "score"),
+                "balance_score": finite_score(raw_match, "balance_score"),
+                "reshuffle_score": finite_score(raw_match, "reshuffle_score"),
+            }
+
+        raw_match_number = snapshot.get("match_number")
+        if isinstance(raw_match_number, bool):
+            raise ValueError("Invalid match number in session snapshot.")
+        try:
+            match_number = int(raw_match_number)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid match number in session snapshot.")
+        if match_number < 0 or match_number > 5000:
+            raise ValueError("Invalid match number in session snapshot.")
+
+        player_names = validate_names(snapshot.get("player_names"), "player_names")
+        raw_history = snapshot.get("history")
+        if not isinstance(raw_history, list) or len(raw_history) > 5000:
+            raise ValueError("Invalid match history in session snapshot.")
+        if len(raw_history) != match_number:
+            raise ValueError("Match history does not match the saved match number.")
+
+        history = [
+            restore_match(raw_match, "history[{}]".format(index))
+            for index, raw_match in enumerate(raw_history)
+        ]
+        current_match = restore_match(snapshot.get("current_match"), "current_match")
+
+        if match_number == 0 and current_match is not None:
+            raise ValueError("A session with no generated matches cannot have a current match.")
+        if match_number > 0 and (current_match is None or not history):
+            raise ValueError("The current match is missing from the saved session.")
+        if current_match is not None:
+            current_names = {
+                player["name"] for player in current_match["team_a"] + current_match["team_b"]
+            }
+            if not current_names.issubset(set(player_names)):
+                raise ValueError("Current team contains players outside the saved roster.")
+
+        session = cls()
+        session.players = [canonical_player(name) for name in player_names]
+        session.match_number = match_number
+        session.current_teams = current_match
+        session.history = history
+        return session
 
     # ========================================================
     # GENERATE MATCH

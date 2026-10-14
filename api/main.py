@@ -24,7 +24,7 @@ if str(ROOT_DIR) not in sys.path:
 from backend.player_service import PlayerService  # noqa: E402
 from backend.session_manager import CricketSession  # noqa: E402
 from backend.team_balancer import player_strength, team_stats  # noqa: E402
-from api.schemas import GenerateMatchRequest  # noqa: E402
+from api.schemas import GenerateMatchRequest, RestoreSessionRequest  # noqa: E402
 
 app = FastAPI(
     title="Prism Cricket Team Balancer API",
@@ -143,6 +143,9 @@ def _snapshot(session_id: str, session: CricketSession) -> Dict[str, Any]:
         "team_b": [enrich(player) for player in team_b],
         "team_a_stats": _team_stats(team_a),
         "team_b_stats": _team_stats(team_b),
+        # Lightweight JSON state used by the browser to recover this session
+        # after Render restarts and its in-memory session registry is cleared.
+        "restore_state": session.to_snapshot(),
     }
 
 
@@ -164,6 +167,31 @@ def create_session() -> Dict[str, Any]:
         session = CricketSession()
         _sessions[session_id] = session
         return _snapshot(session_id, session)
+
+
+@app.post("/api/sessions/{session_id}/restore")
+def restore_session(session_id: str, request: RestoreSessionRequest) -> Dict[str, Any]:
+    """Restore a missing in-memory session from a browser-held snapshot."""
+    try:
+        # Session IDs are created as UUIDs. Reject arbitrary path values before
+        # using a client-provided ID as a registry key.
+        uuid.UUID(session_id)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid session ID.") from exc
+
+    with _session_lock:
+        # Do not let a stale browser snapshot overwrite a currently active session.
+        existing = _sessions.get(session_id)
+        if existing is not None:
+            return _snapshot(session_id, existing)
+
+        try:
+            restored = CricketSession.from_snapshot(request.restore_state, _master_players)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail="Saved session could not be restored: {}".format(exc)) from exc
+
+        _sessions[session_id] = restored
+        return _snapshot(session_id, restored)
 
 
 @app.get("/api/sessions/{session_id}")

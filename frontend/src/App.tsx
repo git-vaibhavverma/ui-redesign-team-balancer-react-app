@@ -1,12 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from './api';
+import { api, isSessionNotFoundError } from './api';
 import PlayerCard from './components/PlayerCard';
 import TeamSummaryCard from './components/TeamSummaryCard';
 import type { Player, SessionState } from './types';
 
 const SESSION_STORAGE_KEY = 'prism-cricket-session-id';
+const UI_STATE_STORAGE_KEY = 'prism-cricket-ui-state';
 
 type Screen = 'select' | 'teams';
+type ActiveTeam = 'A' | 'B';
+
+type PersistedUiState = {
+  session_id: string;
+  selected_names: string[];
+  screen: Screen;
+  search: string;
+  active_team: ActiveTeam;
+};
+
+function readPersistedUiState(): PersistedUiState | null {
+  try {
+    const raw = localStorage.getItem(UI_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedUiState;
+    if (
+      typeof parsed.session_id !== 'string' ||
+      !Array.isArray(parsed.selected_names) ||
+      !['select', 'teams'].includes(parsed.screen) ||
+      typeof parsed.search !== 'string' ||
+      !['A', 'B'].includes(parsed.active_team)
+    ) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -28,22 +56,38 @@ export default function App() {
         if (cancelled) return;
         setPlayers(allPlayers);
 
-        const existingId = localStorage.getItem(SESSION_STORAGE_KEY);
+        const savedUi = readPersistedUiState();
+        const existingId = localStorage.getItem(SESSION_STORAGE_KEY) || savedUi?.session_id || null;
         let current: SessionState;
         if (existingId) {
           try {
             current = await api.getSession(existingId);
-          } catch {
+          } catch (error) {
+            if (!isSessionNotFoundError(error)) throw error;
+            // No restorable snapshot exists (for example, a session from before
+            // browser snapshots were introduced), so start a new blank session.
             current = await api.createSession();
           }
         } else {
           current = await api.createSession();
         }
         if (cancelled) return;
-        localStorage.setItem(SESSION_STORAGE_KEY, current.session_id);
+
+        const savedUiForSession = savedUi?.session_id === current.session_id ? savedUi : null;
+        const validNames = new Set(allPlayers.map((player) => player.name));
+        const rememberedNames = savedUiForSession
+          ? savedUiForSession.selected_names.filter((name) => validNames.has(name))
+          : current.players.map((player) => player.name);
+        const rememberedScreen: Screen =
+          current.match_number > 0 && savedUiForSession?.screen === 'select'
+            ? 'select'
+            : current.match_number > 0 ? 'teams' : 'select';
+
         setSession(current);
-        setScreen(current.match_number > 0 ? 'teams' : 'select');
-        setSelectedNames(new Set(current.players.map((player) => player.name)));
+        setScreen(rememberedScreen);
+        setSelectedNames(new Set(rememberedNames));
+        setSearch(savedUiForSession?.search ?? '');
+        setActiveTeam(savedUiForSession?.active_team ?? 'A');
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load Prism.');
       } finally {
@@ -53,6 +97,25 @@ export default function App() {
     void boot();
     return () => { cancelled = true; };
   }, []);
+
+  // Keep the current browser view (including unsubmitted player edits) durable
+  // across refreshes. The API module separately stores the restorable Python state.
+  useEffect(() => {
+    if (!session) return;
+    const persisted: PersistedUiState = {
+      session_id: session.session_id,
+      selected_names: [...selectedNames],
+      screen,
+      search,
+      active_team: activeTeam,
+    };
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, session.session_id);
+      localStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify(persisted));
+    } catch {
+      // Ignore unavailable or full browser storage; the current page remains usable.
+    }
+  }, [session, selectedNames, screen, search, activeTeam]);
 
   const filteredPlayers = useMemo(() => {
     const prefix = search.trim().toLocaleLowerCase();
@@ -155,7 +218,10 @@ export default function App() {
         <section aria-labelledby="select-heading">
           <div className="section-heading-row">
             <div><h2 id="select-heading">{session?.match_number ? 'Edit Players' : 'Select Players'}</h2><p>Choose the players available for this match.</p></div>
-            <span className="selection-counter"><strong>{selectedNames.size}</strong><span> selected</span></span>
+            <div className="selection-heading-actions">
+              <span className="selection-counter"><strong>{selectedNames.size}</strong><span> selected</span></span>
+              <button type="button" className="button button-quiet reset-session-inline" onClick={clearOrReset} disabled={busy}>Reset Session</button>
+            </div>
           </div>
           <div className="selection-toolbar">
             <label className="search-box">

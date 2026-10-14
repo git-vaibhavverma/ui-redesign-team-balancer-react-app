@@ -27,3 +27,7 @@ class SessionSnapshot(BaseModel):
     team_b: List[Dict[str, Any]]
     team_a_stats: Dict[str, Any]
     team_b_stats: Dict[str, Any]
+
+
+class RestoreSessionRequest(BaseModel):
+    restore_state: Dict[str, Any] = Field(..., description="Validated session snapshot produced by the API")
