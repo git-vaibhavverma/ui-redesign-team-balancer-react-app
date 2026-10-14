@@ -107,9 +107,9 @@ IMPACT_THRESHOLDS = {
 # a greater concentration of high-impact ability.
 # ------------------------------------------------------------
 
-ELITE_PLAYER_PENALTY = 0.06
+ELITE_PLAYER_PENALTY = 0.05
 
-STRONG_PLAYER_PENALTY = 0.05
+STRONG_PLAYER_PENALTY = 0.04
 
 WEAK_PLAYER_PENALTY = 0.10
 
