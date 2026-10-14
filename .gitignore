@@ -22,3 +22,7 @@ env/
 
 # local test env
 frontend/.env.local
+
+#ignore test files
+backend/team_balancer_Test.py
+testing.py
