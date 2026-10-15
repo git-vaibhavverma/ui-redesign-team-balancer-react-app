@@ -26,9 +26,9 @@ frontend/.env.local
 #ignore test files
 backend/team_balancer_check_each_combo.py
 testing_check_each_combo.py
-
-#ignore benchmark test file
 benchmark_team_balancer.py
+analyze_team_combinations.py
+team_analysis_output/
 
 #ignore v1 of team balancer
 backend/team_balancer_v1_unoptimized.py
