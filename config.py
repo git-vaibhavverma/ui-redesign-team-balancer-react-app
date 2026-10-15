@@ -132,4 +132,4 @@ WEAK_PLAYER_PENALTY = 0.005
 # are NOT considered moves.
 # ------------------------------------------------------------
 
-RESHUFFLE_PENALTY = 0.0001
+RESHUFFLE_PENALTY = 0.001
