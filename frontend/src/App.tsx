@@ -65,8 +65,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  // Optional compact side-by-side player lists on mobile; disabled by default.
-  const [sideBySideView, setSideBySideView] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,18 +114,6 @@ export default function App() {
     }
     void boot();
     return () => { cancelled = true; };
-  }, []);
-
-  // The toggle is mobile-only. If the viewport becomes desktop-sized, restore
-  // the standard desktop behavior where team summary cards remain interactive.
-  useEffect(() => {
-    const desktopQuery = window.matchMedia('(min-width: 761px)');
-    const handleViewportChange = () => {
-      if (desktopQuery.matches) setSideBySideView(false);
-    };
-    handleViewportChange();
-    desktopQuery.addEventListener('change', handleViewportChange);
-    return () => desktopQuery.removeEventListener('change', handleViewportChange);
   }, []);
 
   // Keep the current browser view (including unsubmitted player edits) durable
@@ -312,8 +298,8 @@ export default function App() {
             <div className="match-badge">MATCH {session.match_number}</div>
           </div>
           <div className="team-summary-grid">
-            <TeamSummaryCard name="Team A" stats={session.team_a_stats} playerCount={teamA.length} active={activeTeam === 'A' && !sideBySideView} interactive={!sideBySideView} onSelect={() => setActiveTeam('A')} />
-            <TeamSummaryCard name="Team B" stats={session.team_b_stats} playerCount={teamB.length} active={activeTeam === 'B' && !sideBySideView} interactive={!sideBySideView} onSelect={() => setActiveTeam('B')} />
+            <TeamSummaryCard name="Team A" stats={session.team_a_stats} playerCount={teamA.length} active={activeTeam === 'A'} onSelect={() => setActiveTeam('A')} />
+            <TeamSummaryCard name="Team B" stats={session.team_b_stats} playerCount={teamB.length} active={activeTeam === 'B'} onSelect={() => setActiveTeam('B')} />
           </div>
           <details className="balance-explainer">
             <summary className="balance-explainer-toggle">
@@ -349,23 +335,7 @@ export default function App() {
               <p className="balance-explainer-footnote">The algorithm compares valid ways to split the selected group and chooses the pairing that best fits these priorities. It is a guide to fairer teams—not a prediction of the match result.</p>
             </div>
           </details>
-          <div className="side-by-side-toggle-row">
-            <div className="side-by-side-toggle-copy">
-              <div className="side-by-side-toggle-title">Side-by-side view</div>
-              <p>{sideBySideView ? 'On · Both teams shown together with compact player cards.' : 'Off · View one team at a time.'}</p>
-            </div>
-            <button
-              type="button"
-              className="side-by-side-switch"
-              role="switch"
-              aria-checked={sideBySideView}
-              aria-label="Toggle side-by-side team view"
-              onClick={() => setSideBySideView((value) => !value)}
-            >
-              <span aria-hidden="true" />
-            </button>
-          </div>
-          <div className={`team-player-panels ${sideBySideView ? 'is-side-by-side-mobile' : ''}`}>
+          <div className="team-player-panels">
             {([
               { key: 'A', name: 'Team A', team: teamA },
               { key: 'B', name: 'Team B', team: teamB },
@@ -379,7 +349,6 @@ export default function App() {
                       player={player}
                       shared={sharedNames.has(player.name)}
                       movement={movementByName.get(player.name)}
-                      compact={sideBySideView}
                     />
                   ))}
                 </div>
