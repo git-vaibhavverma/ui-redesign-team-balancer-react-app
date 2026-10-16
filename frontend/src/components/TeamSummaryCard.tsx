@@ -5,6 +5,7 @@ type Props = {
   stats: TeamStats;
   playerCount: number;
   active: boolean;
+  interactive?: boolean;
   onSelect: () => void;
 };
 
@@ -13,12 +14,14 @@ function barWidth(value: number, playerCount: number): string {
   return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
 }
 
-export default function TeamSummaryCard({ name, stats, playerCount, active, onSelect }: Props) {
+export default function TeamSummaryCard({ name, stats, playerCount, active, interactive = true, onSelect }: Props) {
   return (
     <button
       type="button"
-      className={`team-summary-card ${active ? 'is-active' : ''}`}
-      aria-pressed={active}
+      className={`team-summary-card ${active && interactive ? 'is-active' : ''} ${!interactive ? 'is-static' : ''}`}
+      aria-pressed={interactive ? active : undefined}
+      aria-disabled={!interactive}
+      disabled={!interactive}
       onClick={onSelect}
     >
       <div className="team-summary-header">
@@ -27,7 +30,7 @@ export default function TeamSummaryCard({ name, stats, playerCount, active, onSe
           <div className="team-strength">{Number(stats.strength ?? 0).toFixed(2)}</div>
           <div className="team-muted">TOTAL STRENGTH · {playerCount} PLAYERS</div>
         </div>
-        {active && <span className="active-indicator" aria-label="Players shown">✓</span>}
+        {active && interactive && <span className="active-indicator" aria-label="Players shown">✓</span>}
       </div>
 
       <div className="mobile-summary-lines">

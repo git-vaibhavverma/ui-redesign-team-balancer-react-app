@@ -7,6 +7,7 @@ type Props = {
   disabled?: boolean;
   shared?: boolean;
   movement?: string;
+  compact?: boolean;
   onCheckedChange?: (name: string, checked: boolean) => void;
 };
 
@@ -24,6 +25,7 @@ export default function PlayerCard({
   disabled = false,
   shared = false,
   movement,
+  compact = false,
   onCheckedChange,
 }: Props) {
   const cardClass = [
@@ -31,9 +33,24 @@ export default function PlayerCard({
     checked ? 'is-selected' : '',
     shared ? 'is-shared' : '',
     selectable ? 'is-selectable' : '',
+    compact && !selectable ? 'is-compact' : '',
   ].filter(Boolean).join(' ');
 
-  const content = (
+  const content = compact && !selectable ? (
+    <div className="compact-player-card-content">
+      <div className="compact-player-card-top">
+        <div className="compact-player-card-identity">
+          <span className="player-rank">#{player.rank}</span>
+          <span className="player-name">{player.name}</span>
+        </div>
+        <div className="player-strength">{player.strength_score.toFixed(2)}</div>
+      </div>
+      <div className="compact-player-card-bottom">
+        <span className="player-role">{roleLabel(player)}</span>
+        {shared && <span className="shared-tag">SHARED</span>}
+      </div>
+    </div>
+  ) : (
     <>
       <div className="player-card-top">
         <div className="player-card-identity">

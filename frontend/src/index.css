@@ -233,3 +233,93 @@ h2 { margin: 0; font-size: clamp(1.45rem, 3vw, 2rem); letter-spacing: -.035em; }
   .player-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .team-summary-card { padding: 15px; }
 }
+
+/* Mobile-only side-by-side team view. Hidden on desktop so the desktop UI is unchanged. */
+.side-by-side-toggle-row { display: none; }
+.team-summary-card.is-static:disabled { opacity: 1; cursor: default; }
+.team-summary-card.is-static { box-shadow: none; }
+
+@media (max-width: 760px) {
+  .side-by-side-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-top: 14px;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .02);
+  }
+  .side-by-side-toggle-copy { min-width: 0; }
+  .side-by-side-toggle-title { color: var(--text); font-size: .8rem; font-weight: 850; }
+  .side-by-side-toggle-copy p { margin: 3px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+  .side-by-side-switch {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 26px;
+    padding: 3px;
+    border: 1px solid #526078;
+    border-radius: 999px;
+    background: #344258;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .side-by-side-switch span {
+    display: block;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #f5f7fa;
+    transition: transform .16s ease, background .16s ease;
+  }
+  .side-by-side-switch[aria-checked="true"] { justify-content: flex-end; border-color: var(--lime); background: var(--lime); }
+  .side-by-side-switch[aria-checked="true"] span { background: #101827; }
+  .side-by-side-switch:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+  .team-player-panels.is-side-by-side-mobile {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .team-player-panels.is-side-by-side-mobile .team-player-panel { display: block; }
+  .team-player-panels.is-side-by-side-mobile .team-player-panel h3 {
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+    font-size: clamp(.76rem, 3.3vw, .91rem);
+    line-height: 1.25;
+  }
+  .team-player-panels.is-side-by-side-mobile .team-player-panel h3 span { font-size: .68rem; }
+  .team-player-panels.is-side-by-side-mobile .team-player-list { gap: 6px; }
+  .team-player-panels.is-side-by-side-mobile .player-card.is-compact {
+    padding: 9px 7px 8px;
+    border-radius: 10px;
+    box-shadow: none;
+  }
+  .compact-player-card-content { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .compact-player-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 5px; min-width: 0; }
+  .compact-player-card-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; min-width: 0; flex: 1; }
+  .team-player-panels.is-side-by-side-mobile .compact-player-card-identity .player-rank { font-size: .66rem; }
+  .team-player-panels.is-side-by-side-mobile .compact-player-card-identity .player-name { font-size: .73rem; line-height: 1.25; }
+  .team-player-panels.is-side-by-side-mobile .player-strength { font-size: .78rem; line-height: 1.2; }
+  .compact-player-card-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px; min-width: 0; }
+  .team-player-panels.is-side-by-side-mobile .compact-player-card-bottom .player-role { margin: 0; font-size: .5rem; letter-spacing: .06em; line-height: 1.25; }
+  .team-player-panels.is-side-by-side-mobile .compact-player-card-bottom .shared-tag { padding: 2px 4px; font-size: .48rem; }
+}
+
+@media (max-width: 360px) {
+  .team-player-panels.is-side-by-side-mobile { gap: 6px; }
+  .team-player-panels.is-side-by-side-mobile .player-card.is-compact { padding: 8px 5px; }
+  .team-player-panels.is-side-by-side-mobile .compact-player-card-identity { gap: 3px; }
+  .team-player-panels.is-side-by-side-mobile .compact-player-card-identity .player-name { font-size: .68rem; }
+  .team-player-panels.is-side-by-side-mobile .player-strength { font-size: .72rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-by-side-switch span { transition: none; }
+}
