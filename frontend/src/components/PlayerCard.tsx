@@ -6,6 +6,7 @@ type Props = {
   selectable?: boolean;
   disabled?: boolean;
   shared?: boolean;
+  movement?: string;
   onCheckedChange?: (name: string, checked: boolean) => void;
 };
 
@@ -22,6 +23,7 @@ export default function PlayerCard({
   selectable = false,
   disabled = false,
   shared = false,
+  movement,
   onCheckedChange,
 }: Props) {
   const cardClass = [
@@ -37,6 +39,7 @@ export default function PlayerCard({
         <div className="player-card-identity">
           <span className="player-rank">#{player.rank}</span>
           <span className="player-name">{player.name}</span>
+          {movement && <span className="player-movement" aria-label={`Player movement: ${movement}`}>{movement}</span>}
           {shared && <span className="shared-tag">SHARED</span>}
         </div>
         <div className="player-strength">{player.strength_score.toFixed(2)}</div>

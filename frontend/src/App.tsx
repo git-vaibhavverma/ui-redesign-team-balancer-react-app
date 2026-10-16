@@ -18,6 +18,24 @@ type PersistedUiState = {
   active_team: ActiveTeam;
 };
 
+// Team assignment in a generated match. Shared players appear in both teams.
+type TeamAssignment = 'A' | 'B' | 'SHARED';
+
+function assignmentMap(teamA: string[], teamB: string[]): Map<string, TeamAssignment> {
+  const namesA = new Set(teamA);
+  const namesB = new Set(teamB);
+  const assignments = new Map<string, TeamAssignment>();
+
+  for (const name of namesA) {
+    assignments.set(name, namesB.has(name) ? 'SHARED' : 'A');
+  }
+  for (const name of namesB) {
+    if (!assignments.has(name)) assignments.set(name, 'B');
+  }
+
+  return assignments;
+}
+
 function readPersistedUiState(): PersistedUiState | null {
   try {
     const raw = localStorage.getItem(UI_STATE_STORAGE_KEY);
@@ -129,6 +147,33 @@ export default function App() {
     const bNames = new Set(teamB.map((player) => player.name));
     return new Set(teamA.filter((player) => bNames.has(player.name)).map((player) => player.name));
   }, [teamA, teamB]);
+
+  // Compare each player with their assignment in the immediately previous match.
+  // A player absent from the previous match is a new addition and gets no label.
+  // Match 1 intentionally has no movement indicators.
+  const movementByName = useMemo(() => {
+    const movements = new Map<string, string>();
+    if (!session || session.match_number <= 1) return movements;
+
+    const history = session.restore_state?.history ?? [];
+    if (history.length < 2) return movements;
+
+    const previousMatch = history[history.length - 2];
+    const previousAssignment = assignmentMap(previousMatch.team_a, previousMatch.team_b);
+    const currentAssignment = assignmentMap(
+      teamA.map((player) => player.name),
+      teamB.map((player) => player.name),
+    );
+
+    for (const [name, currentTeam] of currentAssignment) {
+      const previousTeam = previousAssignment.get(name);
+      if (previousTeam && previousTeam !== currentTeam) {
+        movements.set(name, `${previousTeam} → ${currentTeam}`);
+      }
+    }
+
+    return movements;
+  }, [session, teamA, teamB]);
 
   function updateSelection(name: string, checked: boolean) {
     setSelectedNames((previous) => {
@@ -265,7 +310,12 @@ export default function App() {
                 <h3>{name} Players <span>{team.length}</span></h3>
                 <div className="team-player-list">
                   {sortTeam(team).map((player) => (
-                    <PlayerCard key={`${key}-${player.name}`} player={player} shared={sharedNames.has(player.name)} />
+                    <PlayerCard
+                      key={`${key}-${player.name}`}
+                      player={player}
+                      shared={sharedNames.has(player.name)}
+                      movement={movementByName.get(player.name)}
+                    />
                   ))}
                 </div>
               </section>
