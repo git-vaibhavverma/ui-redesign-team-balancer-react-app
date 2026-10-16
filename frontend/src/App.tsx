@@ -301,32 +301,40 @@ export default function App() {
             <TeamSummaryCard name="Team A" stats={session.team_a_stats} playerCount={teamA.length} active={activeTeam === 'A'} onSelect={() => setActiveTeam('A')} />
             <TeamSummaryCard name="Team B" stats={session.team_b_stats} playerCount={teamB.length} active={activeTeam === 'B'} onSelect={() => setActiveTeam('B')} />
           </div>
-          <section className="balance-explainer" aria-labelledby="balance-explainer-heading">
-            <div className="balance-explainer-intro">
-              <div className="balance-explainer-kicker">BEST-BALANCED PAIRING</div>
-              <h3 id="balance-explainer-heading">How Prism chose these teams</h3>
-              <p>Team A and Team B above were selected together as the most balanced matchup Prism found for the players chosen. The aim is to make the two sides competitive with each other, not to label one team as stronger.</p>
+          <details className="balance-explainer">
+            <summary className="balance-explainer-toggle">
+              <div className="balance-explainer-intro">
+                <div className="balance-explainer-kicker">BEST-BALANCED PAIRING</div>
+                <h3 id="balance-explainer-heading">How the algorithm chose these teams</h3>
+                <p className="balance-explainer-summary-hint">See what goes into balancing the two sides.</p>
+              </div>
+              <span className="balance-explainer-chevron" aria-hidden="true" />
+            </summary>
+            <div className="balance-explainer-content" aria-labelledby="balance-explainer-heading">
+              <div className="balance-explainer-intro balance-explainer-detail-intro">
+                <p>Team A and Team B above were selected together as the most balanced matchup the algorithm found for the players chosen. The aim is to make the two sides competitive with each other, not to label one team as stronger.</p>
+              </div>
+              <div className="balance-principles-grid">
+                <div className="balance-principle">
+                  <span className="balance-principle-number" aria-hidden="true">01</span>
+                  <div><h4>Skills across both teams</h4><p>The algorithm compares batting, bowling, fielding and overall player strength, aiming to spread strengths across both sides.</p></div>
+                </div>
+                <div className="balance-principle">
+                  <span className="balance-principle-number" aria-hidden="true">02</span>
+                  <div><h4>Roles and coverage</h4><p>It considers the mix of batters, bowlers and field-only players so one side does not get an obvious role advantage.</p></div>
+                </div>
+                <div className="balance-principle">
+                  <span className="balance-principle-number" aria-hidden="true">03</span>
+                  <div><h4>Impact players</h4><p>It also considers how highly rated, strong and lower-rated batting and bowling skills are distributed between the teams.</p></div>
+                </div>
+                <div className="balance-principle">
+                  <span className="balance-principle-number" aria-hidden="true">04</span>
+                  <div><h4>Continuity between matches</h4><p>{session.match_number > 1 ? 'For later matches, the algorithm also prefers to avoid unnecessary switches between Team A and Team B while keeping the teams balanced.' : 'From Match 2 onward, the algorithm also considers previous assignments and prefers to avoid unnecessary switches between teams.'}</p></div>
+                </div>
+              </div>
+              <p className="balance-explainer-footnote">The algorithm compares valid ways to split the selected group and chooses the pairing that best fits these priorities. It is a guide to fairer teams—not a prediction of the match result.</p>
             </div>
-            <div className="balance-principles-grid">
-              <div className="balance-principle">
-                <span className="balance-principle-number" aria-hidden="true">01</span>
-                <div><h4>Skills across both teams</h4><p>Prism compares batting, bowling, fielding and overall player strength, aiming to spread strengths across both sides.</p></div>
-              </div>
-              <div className="balance-principle">
-                <span className="balance-principle-number" aria-hidden="true">02</span>
-                <div><h4>Roles and coverage</h4><p>It considers the mix of batters, bowlers and field-only players so one side does not get an obvious role advantage.</p></div>
-              </div>
-              <div className="balance-principle">
-                <span className="balance-principle-number" aria-hidden="true">03</span>
-                <div><h4>Impact players</h4><p>It also considers how highly rated, strong and lower-rated batting and bowling skills are distributed between the teams.</p></div>
-              </div>
-              <div className="balance-principle">
-                <span className="balance-principle-number" aria-hidden="true">04</span>
-                <div><h4>Continuity between matches</h4><p>{session.match_number > 1 ? 'For later matches, Prism also prefers to avoid unnecessary switches between Team A and Team B while keeping the teams balanced.' : 'From Match 2 onward, Prism also considers previous assignments and prefers to avoid unnecessary switches between teams.'}</p></div>
-              </div>
-            </div>
-            <p className="balance-explainer-footnote">Prism compares valid ways to split the selected group and chooses the pairing that best fits these priorities. It is a guide to fairer teams—not a prediction of the match result.</p>
-          </section>
+          </details>
           <div className="team-player-panels">
             {([
               { key: 'A', name: 'Team A', team: teamA },
