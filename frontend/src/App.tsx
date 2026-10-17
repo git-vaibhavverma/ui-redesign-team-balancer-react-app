@@ -65,6 +65,19 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [teamSummariesInteractive, setTeamSummariesInteractive] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 760px) and (orientation: portrait)').matches
+  );
+
+  // Team summaries act as team selectors only on portrait mobile.
+  // Desktop and mobile landscape display both line-ups together, so summaries are informational.
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 760px) and (orientation: portrait)');
+    const update = () => setTeamSummariesInteractive(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,7 +288,7 @@ export default function App() {
               {search && <button type="button" className="clear-search" onClick={() => setSearch('')} aria-label="Clear search">×</button>}
             </label>
             <div className={`toolbar-actions ${session?.match_number ? 'is-editing' : 'is-initial'}`}>
-              <button type="button" className="button button-secondary" onClick={() => setSelectedNames(new Set())} disabled={selectedNames.size === 0}>Clear selection</button>
+              <button type="button" className="button button-secondary" onClick={() => setSelectedNames(new Set())} disabled={selectedNames.size === 0}>Clear Selection</button>
               {session?.match_number ? <button type="button" className="button button-secondary" onClick={() => setScreen('teams')}>Cancel</button> : null}
               <button type="button" className="button button-primary" onClick={() => void generate()} disabled={selectedNames.size < 2 || busy}>
                 {busy ? 'Generating…' : session?.match_number ? 'Generate Next Match' : 'Generate Teams'}
@@ -294,12 +307,18 @@ export default function App() {
       {screen === 'teams' && session && session.match_number > 0 && (
         <section aria-labelledby="teams-heading" className="teams-section">
           <div className="section-heading-row team-title-row">
-            <div><h2 id="teams-heading">Generated Teams</h2><p>Tap a team summary to view its players on mobile.</p></div>
+            <div>
+              <h2 id="teams-heading">Generated Teams</h2>
+              <p>
+                <span className="mobile-team-select-hint">Tap a team summary to view its players on mobile.</span>
+                <span className="teams-comparison-hint">Compare both teams and their player strengths side by side.</span>
+              </p>
+            </div>
             <div className="match-badge">MATCH {session.match_number}</div>
           </div>
           <div className="team-summary-grid">
-            <TeamSummaryCard name="Team A" stats={session.team_a_stats} playerCount={teamA.length} active={activeTeam === 'A'} onSelect={() => setActiveTeam('A')} />
-            <TeamSummaryCard name="Team B" stats={session.team_b_stats} playerCount={teamB.length} active={activeTeam === 'B'} onSelect={() => setActiveTeam('B')} />
+            <TeamSummaryCard name="Team A" stats={session.team_a_stats} playerCount={teamA.length} active={activeTeam === 'A'} interactive={teamSummariesInteractive} onSelect={() => setActiveTeam('A')} />
+            <TeamSummaryCard name="Team B" stats={session.team_b_stats} playerCount={teamB.length} active={activeTeam === 'B'} interactive={teamSummariesInteractive} onSelect={() => setActiveTeam('B')} />
           </div>
           <details className="balance-explainer">
             <summary className="balance-explainer-toggle">

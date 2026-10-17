@@ -5,6 +5,7 @@ type Props = {
   stats: TeamStats;
   playerCount: number;
   active: boolean;
+  interactive?: boolean;
   onSelect: () => void;
 };
 
@@ -13,21 +14,16 @@ function barWidth(value: number, playerCount: number): string {
   return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
 }
 
-export default function TeamSummaryCard({ name, stats, playerCount, active, onSelect }: Props) {
-  return (
-    <button
-      type="button"
-      className={`team-summary-card ${active ? 'is-active' : ''}`}
-      aria-pressed={active}
-      onClick={onSelect}
-    >
+export default function TeamSummaryCard({ name, stats, playerCount, active, interactive = true, onSelect }: Props) {
+  const content = (
+    <>
       <div className="team-summary-header">
         <div>
           <div className="team-summary-title">{name}</div>
           <div className="team-strength">{Number(stats.strength ?? 0).toFixed(2)}</div>
           <div className="team-muted">TOTAL STRENGTH · {playerCount} PLAYERS</div>
         </div>
-        {active && <span className="active-indicator" aria-label="Players shown">✓</span>}
+        {interactive && active && <span className="active-indicator" aria-label="Players shown">✓</span>}
       </div>
 
       <div className="mobile-summary-lines">
@@ -53,6 +49,26 @@ export default function TeamSummaryCard({ name, stats, playerCount, active, onSe
           <span>Strong bowlers <b>{stats.strong_bowlers ?? 0}</b></span>
         </div>
       </div>
-    </button>
+    </>
+  );
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        className={`team-summary-card ${active ? 'is-active' : ''}`}
+        aria-pressed={active}
+        onClick={onSelect}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  // Informational card on desktop and mobile landscape; not keyboard-focusable or clickable.
+  return (
+    <div className="team-summary-card is-static" role="group" aria-label={`${name} summary`}>
+      {content}
+    </div>
   );
 }
